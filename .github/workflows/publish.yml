@@ -1,0 +1,48 @@
+name: Mirror Melon Sandbox and publish
+
+# Fetches the official Melon Sandbox Unity WebGL build from the publisher's
+# asset host, stores it on GitHub and serves it from GitHub Pages, so the game
+# never needs to be iframed from melonsandbox.com or any other CDN.
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Mirror the build onto GitHub
+        run: bash scripts/mirror.sh site
+
+      - name: Check the mirror is complete
+        run: bash scripts/mirror.sh --check site
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: mirror
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
