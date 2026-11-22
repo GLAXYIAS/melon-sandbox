@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Mirrors the Melon Sandbox Unity WebGL build onto GitHub Pages.
 #
-# The files are fetched straight from the publisher's own asset host - the very
-# same build that https://melonsandbox.com/ loads in its game frame - and then
+# The files are fetched straight from the publisher's own asset host — the very
+# same build that https://melonsandbox.com/ loads in its game frame — and then
 # published by GitHub, so the game itself never has to be embedded from
 # melonsandbox.com or any other CDN.
 #
@@ -34,9 +34,10 @@ get() { # url dest [required]
 check() {
   local out="$1" loader data wasm fw bundles banks bytes
   fail=0
-  for f in index.html icon-512.png StreamingAssets/aa/settings.json StreamingAssets/aa/catalog.bin; do
+  for f in index.html host-shim.js icon-512.png StreamingAssets/aa/settings.json StreamingAssets/aa/catalog.bin; do
     [ -s "$out/$f" ] || { echo "missing $f"; fail=1; }
   done
+  grep -q 'host-shim.js' "$out/index.html" || { echo "index.html does not load the host shim"; fail=1; }
   loader=$(find "$out/Build" -name '*.loader.js' 2>/dev/null | wc -l)
   data=$(find "$out/Build" -name '*.data.unityweb' 2>/dev/null | wc -l)
   wasm=$(find "$out/Build" -name '*.wasm.unityweb' 2>/dev/null | wc -l)
@@ -65,6 +66,14 @@ mkdir -p "$OUT"
 echo "== page"
 get "$GAME_BASE/index.html" "$OUT/index.html"
 get "$GAME_BASE/Modules/MelonSiteSDK/melon-web-sdk.js" "$OUT/Modules/MelonSiteSDK/melon-web-sdk.js" no
+
+# The build only finishes loading inside melonsandbox.com's page, because its
+# SDK waits for the parent's handshake.  Run the shim before the SDK so it can
+# answer that handshake from within the self-hosted page.
+cp "$(dirname "$0")/host-shim.js" "$OUT/host-shim.js"
+sed -i 's#<script src="\./Modules/MelonSiteSDK/melon-web-sdk.js"#<script src="host-shim.js"></script>\n    <script src="./Modules/MelonSiteSDK/melon-web-sdk.js"#' "$OUT/index.html"
+grep -q 'host-shim.js' "$OUT/index.html" || { echo "could not inject host-shim.js into index.html" >&2; exit 1; }
+printf '  ok    %10s  %s\n' "$(stat -c%s "$OUT/host-shim.js")" "host-shim.js (injected into index.html)"
 get "$ICON_URL" "$OUT/icon-512.png" no
 
 echo "== assets referenced by the page"
