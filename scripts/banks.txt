@@ -43,3 +43,7 @@ Truck.bank
 Bus.bank
 Boat.bank
 Alarm.bank
+City_Ambience.bank
+Underwater_Ambience.bank
+Highway_Ambience.bank
+Ambient.bank
