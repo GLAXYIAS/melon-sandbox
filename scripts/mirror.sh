@@ -6,6 +6,9 @@
 # published by GitHub, so the game itself never has to be embedded from
 # melonsandbox.com or any other CDN.
 #
+# Every download is checked against scripts/checksums.sha256 before anything is
+# published, so a changed or tampered upstream file fails the build.
+#
 #   bash scripts/mirror.sh site      # download everything into ./site
 #   bash scripts/mirror.sh --check site
 set -euo pipefail
@@ -13,6 +16,8 @@ set -euo pipefail
 GAME_BASE="https://artefacts.melonsandbox.com/MelonPlayground_Webgl/MelonPlayground_Webgl_SiteProdU63/54079"
 ICON_URL="https://melonsandbox.com/icon-512.png"
 BANKS_FILE="scripts/banks.txt"
+CHECKS_FILE="scripts/checksums.sha256"
+ROOT="$(pwd)"
 UA="Mozilla/5.0 (compatible; melon-sandbox-mirror/1.0; +https://github.com/GLAXYIAS/melon-sandbox)"
 
 get() { # url dest [required]
@@ -67,13 +72,6 @@ echo "== page"
 get "$GAME_BASE/index.html" "$OUT/index.html"
 get "$GAME_BASE/Modules/MelonSiteSDK/melon-web-sdk.js" "$OUT/Modules/MelonSiteSDK/melon-web-sdk.js" no
 
-# The build only finishes loading inside melonsandbox.com's page, because its
-# SDK waits for the parent's handshake.  Run the shim before the SDK so it can
-# answer that handshake from within the self-hosted page.
-cp "$(dirname "$0")/host-shim.js" "$OUT/host-shim.js"
-sed -i 's#<script src="\./Modules/MelonSiteSDK/melon-web-sdk.js"#<script src="host-shim.js"></script>\n    <script src="./Modules/MelonSiteSDK/melon-web-sdk.js"#' "$OUT/index.html"
-grep -q 'host-shim.js' "$OUT/index.html" || { echo "could not inject host-shim.js into index.html" >&2; exit 1; }
-printf '  ok    %10s  %s\n' "$(stat -c%s "$OUT/host-shim.js")" "host-shim.js (injected into index.html)"
 get "$ICON_URL" "$OUT/icon-512.png" no
 
 echo "== assets referenced by the page"
@@ -119,6 +117,28 @@ while read -r bank; do
   case "$bank" in \#*) continue ;; esac
   get "$GAME_BASE/StreamingAssets/FMODBanks/$bank" "$OUT/StreamingAssets/FMODBanks/$bank" no
 done < "$BANKS_FILE"
+
+echo "== verify pinned official build"
+# Every downloaded file (index.html included, before any modification) must
+# match the SHA-256 pinned in scripts/checksums.sha256.  A changed upstream file
+# fails the build instead of being published silently.
+[ -s "$CHECKS_FILE" ] || { echo "missing $CHECKS_FILE" >&2; exit 1; }
+if ! ( cd "$OUT" && sha256sum -c "$ROOT/$CHECKS_FILE" --strict --quiet ); then
+  echo "!! SHA-256 mismatch: downloaded files are not the pinned official build" >&2
+  exit 1
+fi
+printf '  ok    %10s  %s\n' "$(wc -l < "$CHECKS_FILE")" "official files match pinned SHA-256"
+
+echo "== host shim"
+# The build only finishes loading inside melonsandbox.com's page, because its
+# SDK waits for the parent's handshake.  Run the shim before the SDK so it can
+# answer that handshake (and the ad module, as unavailable) from within the
+# self-hosted page.  This is the only change made to the published shell; the
+# build files themselves stay byte-identical to the official ones.
+cp "$(dirname "$0")/host-shim.js" "$OUT/host-shim.js"
+sed -i 's#<script src="\./Modules/MelonSiteSDK/melon-web-sdk.js"#<script src="host-shim.js"></script>\n    <script src="./Modules/MelonSiteSDK/melon-web-sdk.js"#' "$OUT/index.html"
+grep -q 'host-shim.js' "$OUT/index.html" || { echo "could not inject host-shim.js into index.html" >&2; exit 1; }
+printf '  ok    %10s  %s\n' "$(stat -c%s "$OUT/host-shim.js")" "host-shim.js (injected into index.html)"
 
 {
   echo "source: $GAME_BASE/"
